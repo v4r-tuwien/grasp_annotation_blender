@@ -1,5 +1,5 @@
 ## grasp_annotation_blender
-Script to annotate grasp points in blender for the HSR.
+Script to manually annotate grasp points in blender for the HSR.
 
 After running the script "LocationSave.py" in blender, the following panels are available in the region with category "TFs" on the right side (next to the scene collection):
 
