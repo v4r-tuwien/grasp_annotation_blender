@@ -1,7 +1,7 @@
 # grasp_annotation_blender
 Script to annotate grasp points in blender for the HSR.
 
-The following panels are available in window TFs after script "LocationSave.py" is run in Blender:
+After running the script "LocationSave.py" in blender, the following panels are available in the region with category "TFs" on the right side (next to the scene collection):
 (a) Save Location:
   Stores a numpy array of the flattened homogeneous tf matrix. The number of entries is displayed, as well as the objects name.
   It's possible to delete all entries.
