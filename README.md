@@ -1,17 +1,32 @@
 ## grasp_annotation_blender
-Script to manually annotate grasp points in blender for the HSR.
+Script to manually annotate grasp points in blender for the HSR. You can change between what gripper and object to use via "obj_substring" and "use_hsr" respectively. Annotations will be saved in ./annotations. Load your model into ./models or change the path in the script. Running the script loads the model and the corresponding numpy file (if existing).
 
 After running the script "LocationSave.py" in blender, the following panels are available in the region with category "TFs" on the right side (next to the scene collection):
 
-### (a) Save Location:
-  Stores a numpy array of the flattened homogeneous tf matrix. The number of entries is displayed, as well as the objects name.
-  It's possible to delete all entries.
+#### Rotate around bb center (z-axis)
 
-### (b) Translation and rotation control for the robot hand.
+Rotates the gripper around the bounding box of the objects (z-axis).
 
-### (c) Grasp annotations:
-  Annotates grasp poses based on the object vertices. You can choose between TOP and SIDE grasp.
+- Rotation Angle: Angle the gripper should be rotated with
+- Rotate Object: Rotates the gripper around the object with "Rotation Angle"
 
-### (d) Rotate around center of the bounding box of the object.
+#### Gripper Control
 
-![grasp_annotations](https://github.com/philippfeigl/grasp_annotation_blender/assets/102654591/2d1e2709-bed5-4526-b35a-0125a58ddd46)
+Slider to open and close the gripper in percent (0-100).
+
+#### Grasp Point Mover
+
+Allows to set the gripper position using the already defined grasping points from the passed numpy file
+
+#### Translation and Rotation Control
+
+Translate and rotate the gripper around x, y and z (+X, -X, +Y, -Y, +Z, -Z). The values for the distance and angle are defined in Translation Step and Rotation Step
+
+#### Save Location
+
+Stores a numpy array of the flattened homogeneous tf matrix. The number of entries is displayed, as well as the objects name.
+It's possible to delete all entries.
+
+
+![image info](./images/grasp_annotator.png)
+
