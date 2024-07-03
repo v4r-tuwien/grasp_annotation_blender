@@ -1,6 +1,8 @@
 ## grasp_annotation_blender
 Script to manually annotate grasp points in blender for the HSR. You can change between what gripper and object to use via "obj_substring" and "use_hsr" respectively. Annotations will be saved in ./annotations. Load your model into ./models or change the path in the script. Running the script loads the model and the corresponding numpy file (if existing).
 
+Important Note: Currently the two grippers do NOT share the same orientation. Check the orientation of your gripper before using the annoted points.
+
 After running the script "LocationSave.py" in blender, the following panels are available in the region with category "TFs" on the right side (next to the scene collection):
 
 #### Rotate around bb center (z-axis)
