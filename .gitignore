@@ -1,0 +1,6 @@
+*.ply
+*.stl
+*.npy
+*.png
+*.json
+*.pkl
