@@ -4,10 +4,11 @@ import os
 import mathutils
 from math import radians
 import math
+from pathlib import Path
 
 """
 Author: Philipp Feigl
-Adapted by: Daniel Zimmer
+Adapted by: Daniel Zimmer, Alexander Haberl
 """
 
 ###############################################################
@@ -15,14 +16,36 @@ Adapted by: Daniel Zimmer
 ###############################################################
 
 # Change this to your object (must only be substring of name) #
-obj_substring = "sugar"
+obj_name = "bottle_red_stanford_norm"
+file_ending = ".obj"
+
+# install additional packages that are required for this script (e.g. center_and_align_object)
+# after runnning this script once with this command, you might have
+# to close and reopen blender for it to recognize this fact
+# you only have to run this command once
+install_additional_packages = False
 
 # Change your gripper (True = HSR, False = PAL) 
-use_hsr = False
+use_hsr = True
+
+# Change your dataset (objects must be in subfolder with this name)
+dataset = "real_test"
+
+# Control whether the object should be centered and aligned
+# to world coordinate axes, requires open3d
+center_and_align_object = False
+
+# scaling factor to transform the mesh into meter,
+# i.e. 0.001 if mesh is in mm, 1 if it is in m
+scaling_factor = 1
 
 ###############################################################
 ###############################################################
 ###############################################################
+
+if install_additional_packages:
+    import pip
+    pip.main(['install', 'open3d', '--user'])
 
 if use_hsr is True:
     hand_name = 'hsr_hand'
@@ -38,45 +61,87 @@ else:
 opposite = True
 
 cwd = bpy.path.abspath('//')
-annotations_path = os.path.join(cwd, "annotations")
-models_path = os.path.join(cwd, "models")
+annotations_path = os.path.join(cwd, "annotations", dataset)
+models_path = os.path.join(cwd, "models", dataset)
 
-obj_arrays = ['003_cracker_box',
-              '004_sugar_box',
-              '006_mustard_bottle',
-              '011_banana',
-              '013_apple',
-              '014_lemon',
-              '015_peach',
-              '016_pear',
-              '017_orange',
-              '018_plum',
-              '024_bowl',
-              'fluidcontainer',
-              'largerinsefluidabottle', 
-              'smallsoybrothbottle']
-              
-obj_name = None
-for obj in obj_arrays:
-    if obj_substring in obj:
-        obj_name = obj
-        break
-    
-if not obj_name:
-    raise Exception(f"Object not found. Is the path correct?") 
-
-    
 npy_file_name = os.path.join(annotations_path, obj_name + '.npy')
-stl_file_name = os.path.join(models_path, obj_name + '.stl')
-bpy.ops.import_mesh.stl(filepath=stl_file_name)
-
-stl_object = bpy.data.objects.get(obj_name)
-
-if stl_object:
-    stl_object.scale = (0.001, 0.001, 0.001)
+mesh_file_name = os.path.join(models_path, obj_name + file_ending)
+if file_ending == '.ply':
+    bpy.ops.wm.ply_import(filepath=mesh_file_name)
+elif file_ending == '.stl':
+    bpy.ops.import_mesh.stl(filepath=mesh_file_name)
+elif file_ending == '.obj':
+    bpy.ops.wm.obj_import(filepath=mesh_file_name)
 else:
-    print("STL object not found in the scene.")
+    raise NotImplementedError(f"You have to add support for the file extension {file_ending}")
+                  
+object = bpy.data.objects.get(obj_name)
+object.scale = (scaling_factor, scaling_factor, scaling_factor)
     
+Path(annotations_path).mkdir(parents=True, exist_ok=True)
+
+
+if center_and_align_object:
+
+
+    import open3d as o3d
+    mesh = o3d.io.read_triangle_mesh(mesh_file_name).scale(scaling_factor, center=(0,0,0))
+    # get pcd, cause when using mesh it still calls the old get_obb function
+    # which does not return the min volume OBB -> maybe will be fixed in o3d 0.19.
+    mesh = mesh.sample_points_poisson_disk(number_of_points=10000)
+
+    obb = mesh.get_minimal_oriented_bounding_box(robust=True)
+
+    # Extract the rotation matrix and center from the OBB
+    rotation_matrix = np.asarray(obb.R)
+    translation_vector = np.asarray(obb.center)
+
+    transform = np.eye(4)
+    transform[:3, :3] = np.linalg.inv(rotation_matrix)
+    transform[:3, 3] = - np.linalg.inv(rotation_matrix) @ translation_vector
+    transform_blender = mathutils.Matrix(transform)
+
+    object.matrix_world = transform_blender @ object.matrix_world
+
+    object.scale = (scaling_factor, scaling_factor, scaling_factor)
+
+    
+class OBJECT_PT_ResetGripperPanel(bpy.types.Panel):
+    """
+    Creates a Panel in the Object properties window to move gripper to a top or side grasp
+    """
+    bl_label = "Reset Gripper"
+    bl_idname = "PT_ResetGriperPanel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'TFs'
+
+    def draw(self, context):
+        layout = self.layout
+
+        hand_obj = bpy.data.objects.get(hand_name)
+        if hand_obj:
+            row = layout.row(align=True)
+            row.operator("hand.reset_gripper", text="Reset Gripper").grasp_type = 'TOP'
+
+        else:
+            layout.label(text="Hand object does not exist!")
+            
+class OBJECT_OT_ResetGripperOperator(bpy.types.Operator):
+    bl_idname = "hand.reset_gripper"
+    bl_label = "Reset Gripper"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        hand_obj = bpy.data.objects.get(hand_name)
+        hand_obj.location.x = 0
+        hand_obj.location.y = 0
+        hand_obj.location.z = 0
+        hand_obj.rotation_euler.x = -90
+        hand_obj.rotation_euler.y = -90
+        hand_obj.rotation_euler.z = 0
+
+
 ###############################################################
 # Grasp Annotation for top and side grasps
 ###############################################################
@@ -90,6 +155,7 @@ class OBJECT_PT_GraspAnnotationPanel(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'TFs'
+    
 
     def draw(self, context):
         """
@@ -109,6 +175,7 @@ class OBJECT_PT_GraspAnnotationPanel(bpy.types.Panel):
             row = layout.row(align=True)
             row.operator("object.annotate_grasp", text="Top Grasp").grasp_type = 'TOP'
             row.operator("object.annotate_grasp", text="Side Grasp").grasp_type = 'SIDE'
+            row.operator("object.annotate_grasp", text="Bottom Grasp").grasp_type = 'BOT'
 
         else:
             layout.label(text="Select an Armature object for annotation.")
@@ -176,10 +243,28 @@ class OBJECT_OT_AnnotateGraspOperator(bpy.types.Operator):
                 hand.location.x = x_new
                 hand.location.y = y_new
                 hand.location.z = z_new
-                # hand.rotation_euler.x = np.pi/2 - bb_euler.x
                 hand.rotation_euler.x = 0
                 hand.rotation_euler.y = -np.pi/2
                 hand.rotation_euler.z = angle_z
+            elif self.grasp_type == 'BOT':
+                print("Annotating Bottom Grasp")
+                hand.location.x = bb_center.x
+                hand.location.y = bb_center.y
+                hand.location.z = bb_center.z - bb_dimensions[2]/2 - hand_offset
+                hand.rotation_euler.x = 0
+                hand.rotation_euler.y = 0 
+                hand.rotation_euler.z = angle_z
+                print(f"{bb_rotation=}")
+            if not use_hsr:
+                if self.grasp_type == 'SIDE':
+                    hand.rotation_euler.x -= np.pi/2
+                    hand.rotation_euler.y += np.pi/2
+                    hand.rotation_euler.z -= np.pi/2
+                    hand.location.z -= hand_offset/2
+                else:
+                    hand.rotation_euler.y += np.pi
+                    hand.rotation_euler.z -= np.pi/2
+                
         return {'FINISHED'}
 
 ###############################################################
@@ -236,11 +321,8 @@ def get_bb_pose(obj):
 
 def rotate_around_point(hand_obj, rotation_angle):
     data = bpy.data
-    i = 0
-    for obj in data.objects:
-        if obj.name != hand_name:
-            bb_center, rotation_matrix = get_bb_pose(obj)
-            break
+    obj = bpy.data.objects.get(obj_name)
+    bb_center, rotation_matrix = get_bb_pose(obj)
     # Calculate vector from bb center to current position
     vector_to_rotation_point = hand_obj.location - mathutils.Vector(bb_center)
     x, y, z = np.asarray(vector_to_rotation_point, dtype=np.float32)
@@ -441,11 +523,12 @@ class OBJECT_OT_GripperOperator(bpy.types.Operator):
             bone = obj.pose.bones[bone_name]
             if bone:
                 if use_hsr:
-                    bone.rotation_euler = (0, 0, math.radians(context.scene.gripper_step / 2.5))
+                    bone.rotation_euler = (0, 0, math.radians(context.scene.gripper_step / 2.083))
                 else:
                     bone.location = mathutils.Vector([context.scene.gripper_step / 2380.95, 0, 0])
                 
             bpy.ops.object.mode_set(mode='OBJECT') 
+            bpy.context.view_layer.objects.active = bpy.data.objects.get(obj_name)
 
         return {'FINISHED'}
 
@@ -496,8 +579,9 @@ class OBJECT_OT_GPSelectOperator(bpy.types.Operator):
     idx: bpy.props.IntProperty(default=0)
         
     def execute(self, context):
-        obj = bpy.data.objects.get(hand_name)
-        if obj:
+        hand = bpy.data.objects.get(hand_name)
+        obj = bpy.data.objects.get(obj_name)
+        if hand:
             data = np.load(npy_file_name)
     
     
@@ -520,12 +604,14 @@ class OBJECT_OT_GPSelectOperator(bpy.types.Operator):
             elif self.direction == '-':
                 self.idx -= 1
                 
-            matrix = data[self.idx][0].reshape((4, 4))
-            rotation_matrix = mathutils.Matrix(matrix).to_3x3()
-            translation_vector = matrix[:3, 3]
+            obj_to_grasp = data[self.idx][0].reshape((4, 4))
+            world_to_object = np.asarray(obj.matrix_world.normalized())
+            world_to_grasp = world_to_object @ obj_to_grasp
+            rotation_matrix = mathutils.Matrix(world_to_grasp).to_3x3()
+            translation_vector = world_to_grasp[:3, 3]
                 
-            obj.rotation_euler = rotation_matrix.to_euler()
-            obj.location = translation_vector
+            hand.rotation_euler = rotation_matrix.to_euler()
+            hand.location = translation_vector
             
 
         return {'FINISHED'}
@@ -561,12 +647,13 @@ class SaveLocationPanel(bpy.types.Panel):
         row = layout.row()
         row.label(text=f'Obj: {obj_name}')
         row = layout.row()
-        row = layout.row()
-        row = layout.row()
         row.operator("object.save_location", text="Save tf", icon='CUBE')
         row.label(text=f'{get_number_of_entries()}')
         row = layout.row()
         row.operator("object.remove_locations", text="Delete all", icon='TRASH')
+        layout.prop(context.scene, "remove_idx")
+        row.operator("object.remove_specific_location", text="Remove Entry", icon='X')
+        
 
 def get_number_of_entries():
     try:
@@ -589,10 +676,14 @@ class OBJECT_OT_RemoveLocationsOperator(bpy.types.Operator):
         return {'FINISHED'}
 
 def save_location_callback(self, context):
-    # obj = context.active_object    hand = bpy.data.objects[hand_name]
+    obj = bpy.data.objects.get(obj_name)  
+    hand = bpy.data.objects[hand_name]
     if hand is not None:
-        hom_mat = hand.matrix_world
-        flattened_hom_mat = np.asarray(hom_mat).flatten().reshape(1, 1, 16)
+        hom_mat = obj.matrix_world.normalized().inverted() @ hand.matrix_world.normalized()
+        #rot_mat = np.asarray(hom_mat.to_3x3().normalized())
+        hom_mat_np = np.asarray(hom_mat)
+        #hom_mat_np[:3, :3] = rot_mat
+        flattened_hom_mat = hom_mat_np.flatten().reshape(1, 1, 16)
         save_location(flattened_hom_mat)
 
 def save_location(location):
@@ -614,6 +705,30 @@ class OBJECT_OT_SaveLocationOperator(bpy.types.Operator):
     def execute(self, context):
         save_location_callback(self, context)
         return {'FINISHED'}
+    
+def remove_specific_location(index):
+    try:
+        saved_locations = np.load(npy_file_name)
+        if 0 <= index < saved_locations.shape[0]:
+            saved_locations = np.delete(saved_locations, index, axis=0)
+            np.save(npy_file_name, saved_locations)
+            return f"Entry {index} removed successfully."
+        else:
+            return "Invalid index."
+    except FileNotFoundError:
+        return "No file found."
+
+class OBJECT_OT_RemoveSpecificLocationOperator(bpy.types.Operator):
+    bl_idname = "object.remove_specific_location"
+    bl_label = "Remove Specific Entry"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        index = context.scene.remove_idx
+        message = remove_specific_location(index)
+        self.report({'INFO'}, message)
+        return {'FINISHED'}
+
 
 ###############################################################
 # Register and Unregister
@@ -623,6 +738,8 @@ def register():
     bpy.utils.register_class(SaveLocationPanel)
     bpy.utils.register_class(OBJECT_OT_SaveLocationOperator)
     bpy.utils.register_class(OBJECT_OT_RemoveLocationsOperator)
+    bpy.utils.register_class(OBJECT_OT_RemoveSpecificLocationOperator)
+    bpy.types.Scene.remove_idx = bpy.props.IntProperty(name="Index to Remove (Index starts at 0)", default=0, min=0)
     ####
     bpy.utils.register_class(OBJECT_PT_TranslationRotationPanel)
     bpy.utils.register_class(OBJECT_OT_TranslateOperator)
@@ -648,6 +765,8 @@ def unregister():
     bpy.utils.unregister_class(SaveLocationPanel)
     bpy.utils.unregister_class(OBJECT_OT_SaveLocationOperator)
     bpy.utils.unregister_class(OBJECT_OT_RemoveLocationsOperator)
+    bpy.utils.unregister_class(OBJECT_OT_RemoveSpecificLocationOperator)
+    del bpy.types.Scene.remove_idx
     ####
     bpy.utils.unregister_class(OBJECT_PT_TranslationRotationPanel)
     bpy.utils.unregister_class(OBJECT_OT_TranslateOperator)

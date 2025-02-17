@@ -4,3 +4,9 @@
 *.png
 *.json
 *.pkl
+*.obj
+*.txt
+
+models/
+misc/
+annotations/
